@@ -553,6 +553,29 @@ fn body_volume(s: &mut Session, name: &str) -> f64 {
     solidcraft_kernel::measure(&b.body).unwrap().volume
 }
 
+/// An Offset Face whose distance is 0, typed or from a parameter, leaves the body as it is
+/// instead of failing in the kernel, so a parameter or configuration row may set it to 0 (#20496).
+#[test]
+fn an_offset_face_of_zero_distance_leaves_the_body_as_it_is() {
+    let mut s = Session::default();
+    run(&mut s, "solid.box", json!({"length": 20, "width": 20, "height": 10, "body_name": "Block"}));
+    run(&mut s, "parameters.add", json!({"name": "lift", "expression": "0 mm"}));
+    run(&mut s, "solid.offset_face", json!({"faces": [[10, 10, 10]], "distance": "lift"}));
+    let clean = |s: &Session| s.model.results.iter().all(|r| r.error.is_none());
+    assert!((body_volume(&mut s, "Block") - 4000.0).abs() < 1e-6);
+    assert!(clean(&s), "{:?}", s.model.results);
+    // 20 × 20 × 12, then back to the box as it was.
+    run(&mut s, "parameters.change", json!({"name": "lift", "expression": "2 mm"}));
+    assert!((body_volume(&mut s, "Block") - 4800.0).abs() < 1e-6);
+    run(&mut s, "parameters.change", json!({"name": "lift", "expression": "0 mm"}));
+    assert!((body_volume(&mut s, "Block") - 4000.0).abs() < 1e-6);
+    assert!(clean(&s), "{:?}", s.model.results);
+    // A typed 0 builds too.
+    run(&mut s, "solid.offset_face", json!({"faces": [[10, 10, 10]], "distance": 0}));
+    assert!((body_volume(&mut s, "Block") - 4000.0).abs() < 1e-6);
+    assert!(clean(&s), "{:?}", s.model.results);
+}
+
 /// A point-only pick on the face two flush boxes share (the call in #12385) warns, naming both
 /// bodies and the one changed, instead of changing the first body silently.
 #[test]

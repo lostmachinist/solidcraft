@@ -34,6 +34,10 @@ type MeasuredFaces = Vec<(u64, Body, kernel::Result<Arc<[kernel::FaceInfo]>>)>;
 /// tolerance worked out from the body, so one body is asked at very few.
 const FACES_KEPT: usize = 4;
 
+/// An Offset Face distance (mm) below this leaves the body as it is: a parameter or a
+/// configuration row may set the distance to 0, and the kernel refuses a zero offset (#20496).
+const OFFSET_FACE_NO_MOVE: f64 = 1e-9;
+
 /// A body's isoparametric curves worked out so far ([`ModelBody::iso_lines`]), with the body they
 /// were worked out on: by face, count each way and display quality.
 type IsoLines = (Option<Body>, std::collections::HashMap<(usize, usize, usize), Arc<[kernel::IsoLine]>>);
@@ -10979,6 +10983,9 @@ fn replay(
         // An Offset Face repeats at the copied faces of the body they lie on.
         if let FeatureKind::OffsetFace { faces, distance, body } = &src.kind {
             let d = val(vals, distance, Kind::Length)?;
+            if d.abs() < OFFSET_FACE_NO_MOVE {
+                continue;
+            }
             let picked = crate::plain(faces);
             for m in mats {
                 let moved: Vec<Vec3> = picked.iter().map(|p| crate::apply_point(m, *p)).collect();
@@ -13255,6 +13262,10 @@ fn eval_feature_kind(
         FeatureKind::OffsetFace { faces, distance, body } => {
             let d = val(vals, distance, Kind::Length)?;
             let i = body_at(st, body, &crate::plain(faces))?;
+            if d.abs() < OFFSET_FACE_NO_MOVE {
+                // The faces stay where they are; the pick was still checked above.
+                return Ok(());
+            }
             let Some(mb) = st.bodies.get(i).cloned() else { return Err(DocError::Invalid("body".into())) };
             let nb = Traced::step(kernel::offset_faces(&mb.body, &crate::plain(faces), d)?, &[&mb.traced()]);
             if let Some(slot) = st.bodies.get_mut(i) {
